@@ -2,11 +2,11 @@ import curses
 from curses import textpad
 import time
 import vlc
-from pytube import YouTube
-from pytube import Search
+from pytube import YouTube, Search, Channel
 import urllib.request
 import re
 import threading
+
 
 
 
@@ -22,6 +22,10 @@ def key_events(stdscr, menu1):
 				menu1.media.pause()
 			else:
 				menu1.media.unpause()
+
+			if round(menu1.media.get_position()*100) == 100:
+				menu1.media = vlc.MediaPlayer(menu1.link)
+				menu1.media.play()
 
 	if key == curses.KEY_LEFT:
 		if menu1.ismedia:
@@ -49,7 +53,12 @@ def key_events(stdscr, menu1):
 
 
 	if key == curses.KEY_DOWN:
-		if not menu1.botpos > len(menu1.search_results)-1:
+		if menu1.searchlist_links[menu1.selected_search] == menu1.search_results[-1]:
+			pass
+
+		else:
+
+
 			menu1.selected_search += 1
 			if menu1.selected_search > menu1.maxlistlen-1:
 				if menu1.botpos < menu1.maxlistlen:
@@ -61,7 +70,12 @@ def key_events(stdscr, menu1):
 
 	if key == curses.KEY_ENTER or key == 10 or key == 13:  # this is enter key
 		try:
-			menu1.playlink(menu1.searchlist_links[menu1.selected_search])
+			link = menu1.searchlist_links[menu1.selected_search]
+			#menu1.playlink(menu1.searchlist_links[menu1.selected_search])
+			getsongthread = threading.Thread(target=menu1.playlink, args=(link,))
+			getsongthread.daemon = True
+			getsongthread.start()
+
 		except IndexError:
 			pass
 
@@ -86,18 +100,30 @@ class menu:
 		self.botpos = 5
 		self.selected_search = 0
 		self.maxlistlen = 5
+		self.isnotify = False
+		self.notifystring = ""
+		self.notifyendtime = 0
+
+	def notify(self, stdscr, maxx):
+		if self.isnotify:
+			curses.textpad.rectangle(stdscr, 0, 5, 2, maxx-1)
+			stdscr.addstr(1,6, self.notifystring[:maxx-6])
+			if int(time.time()) >= self.notifyendtime:
+				self.isnotify = False
 
 	def playlink(self, link):
 		video = YouTube(link)
 		self.video_name = video.title
-		link = video.streams.get_by_itag(251).url
+		self.link = video.streams.get_by_itag(251).url
 		
 		if self.ismedia:
 			self.media.stop()
 
-		self.media = vlc.MediaPlayer(link)
+		self.media = vlc.MediaPlayer(self.link)
 		self.media.play()
 		self.ismedia = True
+
+		self.video_data = [ "Uploader: " + video.author , "Upload Date: " + str(video.publish_date)[:10], "Views: " + "{:,}".format(video.views)]
 
 	def get_links(self):
 
@@ -144,6 +170,10 @@ class menu:
 			self.selected_search = 0
 			self.maxlistlen = maxy-(6)
 
+			self.notifystring = "GETTING LINKS"
+			self.notifyendtime = int(time.time()) + 5
+			self.isnotify = True
+
 			get_linksthread = threading.Thread(target=self.get_links,)
 			get_linksthread.daemon = True
 			get_linksthread.start()
@@ -157,7 +187,11 @@ class menu:
 
 	def searchbox(self, stdscr, maxy, maxx):
 
+		stdscr.attron(curses.color_pair(2))
+
 		curses.textpad.rectangle(stdscr, 3, int(maxx/2), maxy-2, maxx-1)
+
+		stdscr.attroff(curses.color_pair(2))
 
 		self.searchlist_links = self.search_results[self.toppos:self.botpos]
 		searchlist = self.search_titles[self.toppos:self.botpos]
@@ -174,7 +208,10 @@ class menu:
 
 		curses.textpad.rectangle(stdscr, 3, 0, int((maxy-2)/3), int(maxx/2)-1)
 
-		stdscr.addstr(3,1,self.video_name, curses.A_REVERSE)
+		stdscr.addstr(3, 1, self.video_name[:int(maxx/2)-2], curses.A_REVERSE)
+
+		for i in range(len(self.video_data)):
+			stdscr.addstr(4+1+i, 1, self.video_data[i][:int(maxx/2)-3])
 
 
 
@@ -244,6 +281,9 @@ def main():
 				menu1.lyricbox(stdscr, maxy, maxx)
 
 			menu1.searchbar(stdscr, maxy, maxx)
+
+			menu1.notify(stdscr, maxx)
+
 
 			stdscr.refresh()
 
